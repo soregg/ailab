@@ -127,7 +127,7 @@ class MyRequestHandler(BaseHTTPRequestHandler):
             self._set_response(400)
             self.wfile.write("Invalid JSON format".encode('utf-8'))
 
-def run(server_class=HTTPServer, handler_class=MyRequestHandler, port=8000):
+def run(server_class=HTTPServer, handler_class=MyRequestHandler, port=8080):
     server_address = ('', port)
     httpd = server_class(server_address, handler_class)
     print(f"Starting server on port {port}")
