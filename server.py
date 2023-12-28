@@ -70,6 +70,10 @@ class MyRequestHandler(BaseHTTPRequestHandler):
         self.send_header('Content-type', content_type)
         self.end_headers()
 
+    def do_GET(self):
+        self._set_response(200, 'text/plain')
+        self.wfile.write("Hello World.\n".encode('utf-8'))
+
     def do_POST(self):
         content_type, params = cgi.parse_header(self.headers['Content-Type'])
 
@@ -81,8 +85,7 @@ class MyRequestHandler(BaseHTTPRequestHandler):
             self._handle_json_data()
             isPdfOrJson = True
         if not isPdfOrJson:
-            self._set_response(400)
-            self.wfile.write("Unsupported content type")
+            self.wfile.write("Hello World.")
 
     def _handle_multipart_form_data(self):
         # Create a temporary file to save the uploaded file
