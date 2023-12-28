@@ -1,16 +1,12 @@
-import socket, json, requests, cgi, tempfile, shutil
+import json, cgi, tempfile, shutil
 from dotenv import load_dotenv
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os, pinecone
-from langchain.document_loaders import UnstructuredPDFLoader, OnlinePDFLoader, PyPDFLoader, TextLoader
+from langchain.document_loaders import PyPDFLoader
 from langchain.embeddings import NLPCloudEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import Pinecone
-from langchain.chat_models import ChatOpenAI
 from langchain.chains.question_answering import load_qa_chain
-from langchain.chains import LLMChain
-from langchain.llms import NLPCloud
-from langchain.prompts import PromptTemplate
 from langchain_community.llms import HuggingFaceHub
 
 # read api keys
