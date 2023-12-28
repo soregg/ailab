@@ -15,3 +15,5 @@ $venv_bin/pip install nlpcloud
 # $venv_bin/pip install transformers
 # $venv_bin/pip install tensorflow
 # $venv_bin/pip install flask
+
+$venv_bin/pip install text-generation transformers google-search-results numexpr langchainhub sentencepiece jinja2

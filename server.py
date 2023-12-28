@@ -1,18 +1,25 @@
 import socket, json, requests, cgi, tempfile, shutil
+from dotenv import load_dotenv
 from http.server import BaseHTTPRequestHandler, HTTPServer
-import os, nlpcloud, pinecone
-from langchain import vectorstores
+import os, pinecone
 from langchain.document_loaders import UnstructuredPDFLoader, OnlinePDFLoader, PyPDFLoader, TextLoader
 from langchain.embeddings import NLPCloudEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import Pinecone
+from langchain.chat_models import ChatOpenAI
+from langchain.chains.question_answering import load_qa_chain
+from langchain.chains import LLMChain
+from langchain.llms import NLPCloud
+from langchain.prompts import PromptTemplate
+from langchain_community.llms import HuggingFaceHub
 
 # read api keys
+load_dotenv()
 NLPCLOUD_API_KEY = os.environ.get("NLPCLOUD_API_KEY")
-
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
 PINECONE_INDEX = os.environ.get("PINECONE_INDEX")
 PINECONE_ENV = os.environ.get("PINECONE_ENV")
+HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 
 def pdf_loader(tempfile_path):
     print ("pdf_loader")
@@ -39,24 +46,29 @@ def pdf_loader(tempfile_path):
     )
     docsearch = Pinecone.from_texts([t.page_content for t in texts], embeddings, index_name=PINECONE_INDEX)
 
-def chat(prompt):
-    embeddings = NLPCloudEmbeddings()
-    query_vector = embeddings.embed_query(prompt['userprompt'])
+def chat(json_data):
     pinecone.init(
         api_key=PINECONE_API_KEY,
         environment=PINECONE_ENV
     )
-    result = pinecone.QueryVector(query_vector,top_k=5)
-    print("=============")
-    print("=============")
-    print("=============")
-    print("=============")
-    print (result)
-    print("=============")
-    print("=============")
-    print("=============")
-    print("=============")
-    return result["values"]
+    embeddings = NLPCloudEmbeddings()
+    # llm = ChatOpenAI(temperature=0, openai_api_key=OPENAI_API_KEY)
+    llm = HuggingFaceHub(
+        repo_id="HuggingFaceH4/zephyr-7b-beta",
+        task="text-generation",
+        model_kwargs={
+            "max_new_tokens": 512,
+            "top_k": 30,
+            "temperature": 0.1,
+            "repetition_penalty": 1.03,
+        },
+    )
+    chain = load_qa_chain(llm, chain_type="stuff")
+    vectorstore = Pinecone.from_existing_index(PINECONE_INDEX, embeddings)
+    query=json_data["userprompt"]
+    docs = vectorstore.similarity_search(json_data["userprompt"])
+    chain = chain.run(input_documents=docs, question=query)
+    return chain
 
 #####################################
 # http request handler
@@ -118,14 +130,9 @@ class MyRequestHandler(BaseHTTPRequestHandler):
         json_data = self.rfile.read(content_length)
         try:
             json_data = json.loads(json_data.decode('utf-8'))
-            if 'userprompt' in json_data:
-                response_data=chat(json_data)
-                response_json = json.dumps(response_data)
-                self._set_response(200, 'application/json')
-                self.wfile.write(response_json.encode('utf-8'))
-            else:
-                self._set_response(400)
-                self.wfile.write("Invalid JSON format. 'userprompt' field not found.".encode('utf-8'))
+            response_data=chat(json_data)
+            self._set_response(200)
+            self.wfile.write(response_data.encode('utf-8'))
         except json.JSONDecodeError:
             self._set_response(400)
             self.wfile.write("Invalid JSON format".encode('utf-8'))
