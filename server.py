@@ -21,9 +21,8 @@ PINECONE_INDEX = os.environ.get("PINECONE_INDEX")
 PINECONE_ENV = os.environ.get("PINECONE_ENV")
 HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 
+# load pdf to pinecone
 def pdf_loader(tempfile_path):
-    print ("pdf_loader")
-    print (tempfile_path)
     
     # Other options for loaders 
     loader = PyPDFLoader(tempfile_path)
@@ -38,20 +37,30 @@ def pdf_loader(tempfile_path):
     print (f'Here is a sample: {data[0].page_content[:200]}')
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
     texts = text_splitter.split_documents(data)
+
+    # embeddings
     embeddings = NLPCloudEmbeddings()
 
+    #save to pinecone
     pinecone.init(
         api_key=PINECONE_API_KEY,
         environment=PINECONE_ENV
     )
     docsearch = Pinecone.from_texts([t.page_content for t in texts], embeddings, index_name=PINECONE_INDEX)
 
+# chatbot
 def chat(json_data):
+    
+    # pinecone 
     pinecone.init(
         api_key=PINECONE_API_KEY,
         environment=PINECONE_ENV
     )
+    
+    # embedding
     embeddings = NLPCloudEmbeddings()
+
+    # llm
     # llm = ChatOpenAI(temperature=0, openai_api_key=OPENAI_API_KEY)
     llm = HuggingFaceHub(
         repo_id="HuggingFaceH4/zephyr-7b-beta",
@@ -63,12 +72,14 @@ def chat(json_data):
             "repetition_penalty": 1.03,
         },
     )
+
+    # get result from pinecone
     chain = load_qa_chain(llm, chain_type="stuff")
     vectorstore = Pinecone.from_existing_index(PINECONE_INDEX, embeddings)
     query=json_data["userprompt"]
     docs = vectorstore.similarity_search(json_data["userprompt"])
-    chain = chain.run(input_documents=docs, question=query)
-    return chain
+    result = chain.run(input_documents=docs, question=query)
+    return result
 
 #####################################
 # http request handler
@@ -76,6 +87,7 @@ def chat(json_data):
 # curl -X POST -H "Content-Type: application/json" -d '{"userprompt": "Please summarize the document in 100 words."}' http://localhost:8000
 #####################################
 
+# request handler
 class MyRequestHandler(BaseHTTPRequestHandler):
     def _set_response(self, status_code=200, content_type='text/plain'):
         self.send_response(status_code)
@@ -99,9 +111,9 @@ class MyRequestHandler(BaseHTTPRequestHandler):
         if not isPdfOrJson:
             self.wfile.write("Hello World.")
 
+    # pdf to pinecone
     def _handle_multipart_form_data(self):
-        # Create a temporary file to save the uploaded file
-
+        # create a temporary file to save the uploaded file
         form = cgi.FieldStorage(
             fp=self.rfile,
             headers=self.headers,
@@ -115,16 +127,16 @@ class MyRequestHandler(BaseHTTPRequestHandler):
 
         temp_file_path = temp_file.name
 
-        # Perform action 1 (replace this with your specific logic)
-        print(f"Action 1: Processing PDF file at {temp_file_path}")
+        # pdf to pinecone
         pdf_loader(temp_file_path)
 
-        # Delete the temporary file
+        # delete temporary file
         os.remove(temp_file_path)
 
         self._set_response(200, 'text/plain')
         self.wfile.write("pdf data stored to pinecone, temp pdf deleted.\n".encode('utf-8'))
 
+    # chatbot
     def _handle_json_data(self):
         content_length = int(self.headers['Content-Length'])
         json_data = self.rfile.read(content_length)
