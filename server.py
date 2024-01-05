@@ -3,71 +3,64 @@ from dotenv import load_dotenv
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os, pinecone
 from langchain.document_loaders import PyPDFLoader
+
+from langchain.llms import HuggingFaceHub
+from langchain.llms.huggingface_pipeline import HuggingFacePipeline
 from langchain.embeddings import NLPCloudEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.text_splitter import CharacterTextSplitter
 from langchain.vectorstores import Pinecone
 from langchain.chains.question_answering import load_qa_chain
-from langchain_community.llms import HuggingFaceHub
+from langchain.embeddings import HuggingFaceEmbeddings
 
 # read api keys
 load_dotenv()
-NLPCLOUD_API_KEY = os.environ.get("NLPCLOUD_API_KEY")
+HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
 PINECONE_INDEX = os.environ.get("PINECONE_INDEX")
 PINECONE_ENV = os.environ.get("PINECONE_ENV")
-HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 
+#pinecone init
+pinecone.init(
+    api_key=PINECONE_API_KEY,
+    environment=PINECONE_ENV
+)
+index = pinecone.Index(PINECONE_INDEX)
+# delete_response = index.delete(delete_all=True)
+
+# embeddings
+embeddings = HuggingFaceEmbeddings()
+# embeddings = HuggingFaceInferenceAPIEmbeddings(
+#     api_key=HF_TOKEN, model_name="sentence-transformers/all-MiniLM-l6-v2"
+# )
 # load pdf to pinecone
 def pdf_loader(tempfile_path):
-    
-    # Other options for loaders 
     loader = PyPDFLoader(tempfile_path)
-    # loader = UnstructuredPDFLoader("123.pdf")
-    # loader = OnlinePDFLoader("https://www.redhat.com/rhdc/managed-files/rh-hong-kong-jockey-club-case-study-f29603pr-202109-en.pdf")
-
-    data = loader.load()
-
-    # Note: If you're using PyPDFLoader then it will split by page for you already
-    print (f'You have {len(data)} document(s) in your data')
-    print (f'There are {len(data[0].page_content)} characters in your sample document')
-    print (f'Here is a sample: {data[0].page_content[:200]}')
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-    texts = text_splitter.split_documents(data)
-
-    # embeddings
-    embeddings = NLPCloudEmbeddings()
-
-    #save to pinecone
-    pinecone.init(
-        api_key=PINECONE_API_KEY,
-        environment=PINECONE_ENV
-    )
-    docsearch = Pinecone.from_texts([t.page_content for t in texts], embeddings, index_name=PINECONE_INDEX)
+    pages = loader.load_and_split()
+    vectorstore = Pinecone.from_documents(pages, embeddings, index_name=PINECONE_INDEX)
 
 # chatbot
 def chat(json_data):
     
-    # pinecone 
-    pinecone.init(
-        api_key=PINECONE_API_KEY,
-        environment=PINECONE_ENV
-    )
-    
-    # embedding
-    embeddings = NLPCloudEmbeddings()
-
     # llm
-    # llm = ChatOpenAI(temperature=0, openai_api_key=OPENAI_API_KEY)
     llm = HuggingFaceHub(
         repo_id="HuggingFaceH4/zephyr-7b-beta",
+        # repo_id="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        # repo_id="microsoft/phi-2",
+        # repo_id="mistralai/Mixtral-8x7B-Instruct-v0.1",
         task="text-generation",
         model_kwargs={
             "max_new_tokens": 512,
             "top_k": 30,
-            "temperature": 0.1,
+            "temperature": 0.5,
+            "max_length": 200,
             "repetition_penalty": 1.03,
         },
     )
+
+
+    # llm = HuggingFacePipeline.from_model_id(model_id="google/flan-t5-large", task="text2text-generation", model_kwargs={"temperature": 0, "max_length": 200}, device=0)
+    # llm = HuggingFacePipeline.from_model_id(model_id="google/flan-t5-large", task="text2text-generation", model_kwargs={"temperature": 0, "max_length": 200})
 
     # get result from pinecone
     chain = load_qa_chain(llm, chain_type="stuff")
@@ -75,7 +68,7 @@ def chat(json_data):
     query=json_data["userprompt"]
     docs = vectorstore.similarity_search(json_data["userprompt"])
     result = chain.run(input_documents=docs, question=query)
-    return result
+    return result.strip()
 
 #####################################
 # http request handler
